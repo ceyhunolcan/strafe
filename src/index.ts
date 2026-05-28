@@ -1,29 +1,26 @@
 // ─── src/index.ts ─────────────────────────────────────────────────────
 //
-// The entry point. For Evening 1, all this does is fetch your
-// contributions and print a summary to the terminal.
+// The entry point. Evening 2: fetch contributions, render the grid as
+// SVG, and write it to dist/contributions.svg.
 //
 // To run it:
-//   1. Make sure you've created a GitHub Personal Access Token with
-//      `read:user` scope. Get one at: github.com/settings/tokens
-//   2. Export it as an environment variable in your terminal:
-//        export GITHUB_TOKEN=ghp_yourtokenhere
-//   3. Run:
-//        npm start ceyhunolcan
-//      (replace ceyhunolcan with any GitHub username you want to fetch)
+//   export GITHUB_TOKEN=ghp_yourtokenhere
+//   npm start ceyhunolcan
+//
+// Then open dist/contributions.svg in your browser.
 // ──────────────────────────────────────────────────────────────────────
 
+import { writeFileSync, mkdirSync } from "node:fs";
 import { fetchContributions } from "./github/fetch-contributions.js";
+import { renderSvg } from "./render/svg.js";
 
 async function main() {
-  // Read the username from the command line.
   const username = process.argv[2];
   if (!username) {
     console.error("Usage: npm start <github-username>");
     process.exit(1);
   }
 
-  // Read the GitHub token from environment.
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
     console.error("Error: set GITHUB_TOKEN environment variable.");
@@ -33,21 +30,21 @@ async function main() {
 
   console.log(`Fetching contributions for @${username}...`);
   const grid = await fetchContributions(username, token);
+  console.log(`✓ Found ${grid.totalContributions} contributions in the past year.`);
 
-  console.log(`\n✓ Found ${grid.totalContributions} contributions in the past year.`);
-  console.log(`\nGrid shape: ${grid.cells.length} days × ${grid.cells[0].length} weeks\n`);
+  console.log(`Rendering SVG...`);
+  const svg = renderSvg(grid);
 
-  // Print a tiny ASCII version of the grid so we can sanity-check the data.
-  // Each row is a day of the week; each column is a week.
-  // Cells are rendered as: ' ' (level 0), '·' (1), '▪' (2), '◼' (3), '█' (4)
-  const symbols = [" ", "·", "▪", "◼", "█"];
-  for (const row of grid.cells) {
-    console.log(row.map(c => symbols[c.level]).join(""));
-  }
-  console.log();
+  // Ensure dist/ exists, then write the file.
+  mkdirSync("dist", { recursive: true });
+  const outputPath = "dist/contributions.svg";
+  writeFileSync(outputPath, svg, "utf-8");
+
+  console.log(`✓ Wrote ${outputPath} (${svg.length} bytes)`);
+  console.log(`\nOpen it: open ${outputPath}`);
 }
 
 main().catch(err => {
-  console.error("Fetch failed:", err.message);
+  console.error("Failed:", err.message);
   process.exit(1);
 });
