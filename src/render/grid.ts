@@ -1,23 +1,21 @@
 // ─── src/render/grid.ts ───────────────────────────────────────────────
 //
-// Renders the contribution grid as SVG rectangles.
-// Evening 4: each cell now includes destruction animations timed to
-// when the fighter passes over it.
+// Renders the contribution grid with two-stage cell animations:
+//   1. Raider destroys cell (red flash, fade to invisible)
+//   2. Guardian restores cell (teal flash, fade back to original)
 //
-// Evening 5 fix: gracefully skips cells that don't exist. GitHub's
-// contribution graph has partial rows at the start/end of the year
-// (e.g. if the range begins on a Wednesday, Sun/Mon/Tue of that first
-// week are missing). Without this guard, accessing cell.level on
-// undefined cells crashes the renderer.
+// Uses a single <animate> per attribute with keyTimes spanning the
+// full loop, so animations correctly repeat indefinitely (fixes the
+// v1 bug where cells only animated during the first loop).
 // ──────────────────────────────────────────────────────────────────────
 
 import type { Grid } from "../github/fetch-contributions.js";
 import {
+  MS_PER_CELL,
   FLASH_DURATION_MS,
   FADE_DURATION_MS,
-  loopDuration,
-  ms,
-  stepToBeginTime,
+  GUARDIAN_LAG_MS,
+  loopDurationMs,
 } from "./animation.js";
 import { serpentinePath } from "./path.js";
 
@@ -43,7 +41,8 @@ export const COLORS = {
   level3: "#26A641",
   level4: "#39D353",
   text: "#7D8590",
-  flash: "#FFFFFF",
+  raiderLaser: "#FF6B6B",
+  guardianBeam: "#5EEAD4",
 } as const;
 
 // ─── Coordinate helpers ────────────────────────────────────────────────
@@ -55,10 +54,6 @@ export function cellToPixel(week: number, day: number): { x: number; y: number }
   };
 }
 
-/**
- * Maximum row length across all 7 days. Use this (not cells[0].length)
- * when iterating columns to avoid the partial-row crash.
- */
 function maxWeeks(grid: Grid): number {
   let max = 0;
   for (const row of grid.cells) {
@@ -86,16 +81,80 @@ function fillForLevel(level: 0 | 1 | 2 | 3 | 4): string {
 
 // ─── Cell rendering ────────────────────────────────────────────────────
 
-function buildStepLookup(
-  numWeeks: number,
-  numDays: number
-): Map<string, number> {
+function buildStepLookup(numWeeks: number, numDays: number): Map<string, number> {
   const path = serpentinePath(numWeeks, numDays);
   const lookup = new Map<string, number>();
   path.forEach((coord, step) => {
     lookup.set(`${coord.week}-${coord.day}`, step);
   });
   return lookup;
+}
+
+/**
+ * Build the opacity animation values + keyTimes for a single cell.
+ *
+ * The cell timeline within one loop:
+ *   t=0          → opacity 1 (alive)
+ *   t=destroyAt  → opacity 1, about to fade
+ *   t=destroyed  → opacity 0 (destroyed)
+ *   t=restoreAt  → opacity 0, about to revive
+ *   t=restored   → opacity 1 (revived)
+ *   t=1 (loopEnd) → opacity 1
+ *
+ * Special case: when destroyAt = 0 (step 0 cell), we skip the initial
+ * "1" since keyTimes can't have duplicates.
+ */
+function buildOpacityKeyframes(
+  destroyAt: number,
+  restoreAt: number,
+  fade: number,
+  loop: number
+): { values: string; keyTimes: string } {
+  const tDestroy = destroyAt / loop;
+  const tDestroyed = (destroyAt + fade) / loop;
+  const tRestore = restoreAt / loop;
+  const tRestored = (restoreAt + fade) / loop;
+
+  if (destroyAt === 0) {
+    return {
+      values: "1;0;0;1;1",
+      keyTimes: `0;${tDestroyed.toFixed(4)};${tRestore.toFixed(4)};${tRestored.toFixed(4)};1`,
+    };
+  }
+
+  return {
+    values: "1;1;0;0;1;1",
+    keyTimes: `0;${tDestroy.toFixed(4)};${tDestroyed.toFixed(4)};${tRestore.toFixed(4)};${tRestored.toFixed(4)};1`,
+  };
+}
+
+/**
+ * Build the fill flash animation for a single cell.
+ * Discrete (instant) transitions for the laser flashes.
+ */
+function buildFillKeyframes(
+  destroyAt: number,
+  restoreAt: number,
+  flash: number,
+  loop: number,
+  original: string
+): { values: string; keyTimes: string } {
+  const tDestroy = destroyAt / loop;
+  const tDestroyFlashEnd = (destroyAt + flash) / loop;
+  const tRestore = restoreAt / loop;
+  const tRestoreFlashEnd = (restoreAt + flash) / loop;
+
+  if (destroyAt === 0) {
+    return {
+      values: `${COLORS.raiderLaser};${original};${COLORS.guardianBeam};${original};${original}`,
+      keyTimes: `0;${tDestroyFlashEnd.toFixed(4)};${tRestore.toFixed(4)};${tRestoreFlashEnd.toFixed(4)};1`,
+    };
+  }
+
+  return {
+    values: `${original};${COLORS.raiderLaser};${original};${COLORS.guardianBeam};${original};${original}`,
+    keyTimes: `0;${tDestroy.toFixed(4)};${tDestroyFlashEnd.toFixed(4)};${tRestore.toFixed(4)};${tRestoreFlashEnd.toFixed(4)};1`,
+  };
 }
 
 function renderAnimatedCell(
@@ -107,37 +166,33 @@ function renderAnimatedCell(
 ): string {
   const { x, y } = cellToPixel(week, day);
   const originalFill = fillForLevel(level);
-  const begin = stepToBeginTime(step);
-  const fullLoop = loopDuration(totalSteps);
 
+  // Level 0 cells are static — no contribution to defend
   if (level === 0) {
     return `<rect x="${x}" y="${y}" width="${CELL_SIZE}" height="${CELL_SIZE}" rx="${CELL_RADIUS}" ry="${CELL_RADIUS}" fill="${originalFill}" />`;
   }
 
+  const loopMs = loopDurationMs(totalSteps);
+  const destroyAt = step * MS_PER_CELL;
+  const restoreAt = destroyAt + GUARDIAN_LAG_MS;
+
+  const opacity = buildOpacityKeyframes(destroyAt, restoreAt, FADE_DURATION_MS, loopMs);
+  const fill = buildFillKeyframes(destroyAt, restoreAt, FLASH_DURATION_MS, loopMs, originalFill);
+
   return `<rect x="${x}" y="${y}" width="${CELL_SIZE}" height="${CELL_SIZE}" rx="${CELL_RADIUS}" ry="${CELL_RADIUS}" fill="${originalFill}">
     <animate
+      attributeName="opacity"
+      values="${opacity.values}"
+      keyTimes="${opacity.keyTimes}"
+      dur="${loopMs}ms"
+      repeatCount="indefinite"
+    />
+    <animate
       attributeName="fill"
-      values="${originalFill};${COLORS.flash};${originalFill}"
-      keyTimes="0;0.5;1"
-      dur="${ms(FLASH_DURATION_MS)}"
-      begin="${begin}"
-      fill="freeze"
-      repeatCount="1"
-    />
-    <animate
-      attributeName="opacity"
-      values="1;0"
-      dur="${ms(FADE_DURATION_MS)}"
-      begin="${begin}"
-      fill="freeze"
-      repeatCount="1"
-    />
-    <animate
-      attributeName="opacity"
-      values="0;1"
-      dur="0.01s"
-      begin="${fullLoop}"
-      fill="freeze"
+      values="${fill.values}"
+      keyTimes="${fill.keyTimes}"
+      dur="${loopMs}ms"
+      calcMode="discrete"
       repeatCount="indefinite"
     />
   </rect>`;
@@ -145,7 +200,7 @@ function renderAnimatedCell(
 
 /**
  * Render the full grid with all per-cell animations.
- * Tolerant of uneven rows — skips cells that don't exist.
+ * Tolerant of uneven rows (partial weeks at year boundaries).
  */
 export function renderGrid(grid: Grid): string {
   const numWeeks = maxWeeks(grid);
@@ -158,7 +213,6 @@ export function renderGrid(grid: Grid): string {
   for (let day = 0; day < numDays; day++) {
     for (let week = 0; week < numWeeks; week++) {
       const cell = grid.cells[day][week];
-      // Skip cells that don't exist (partial first/last weeks of the year)
       if (!cell) continue;
       const step = stepLookup.get(`${week}-${day}`) ?? 0;
       cells.push(renderAnimatedCell(week, day, cell.level, step, totalSteps));

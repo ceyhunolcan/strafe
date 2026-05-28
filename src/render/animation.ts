@@ -1,51 +1,50 @@
 // ─── src/render/animation.ts ──────────────────────────────────────────
 //
 // Timing constants and helpers for the animation.
-// All animations sync to this master clock.
+// All animations sync to a single master clock.
 //
-// Why this file exists: by centralizing all timing here, we can tune
-// the speed feel of the entire animation by changing a single number.
+// Phase 1 v2: the Guardian follows the Raider by GUARDIAN_LAG_CELLS cells.
+// Cells are destroyed by the Raider, then restored by the Guardian.
 // ──────────────────────────────────────────────────────────────────────
 
-/**
- * Time in milliseconds the fighter spends traveling over each cell.
- * 80ms feels brisk but readable — fast enough that the 371-cell
- * strafe completes in ~30 seconds, slow enough that you can see
- * each cell get destroyed.
- */
 export const MS_PER_CELL = 80;
-
-/**
- * Brief flash before the cell disappears (white-hot impact frame).
- */
 export const FLASH_DURATION_MS = 60;
-
-/**
- * Fade duration after the flash.
- */
 export const FADE_DURATION_MS = 120;
 
+// Guardian follows Raider by this many cells
+export const GUARDIAN_LAG_CELLS = 3;
+export const GUARDIAN_LAG_MS = GUARDIAN_LAG_CELLS * MS_PER_CELL; // 240ms
+
+export const RESTORE_DURATION_MS = 120;
+
 /**
- * Convert a step index (which cell number in the path) into a delay
- * in seconds, formatted as an SVG-friendly string ("1.6s", "23.84s").
+ * Convert a step index into an SVG-friendly begin time string.
  */
 export function stepToBeginTime(step: number): string {
-  const ms = step * MS_PER_CELL;
-  return `${(ms / 1000).toFixed(2)}s`;
+  const milliseconds = step * MS_PER_CELL;
+  return `${(milliseconds / 1000).toFixed(2)}s`;
 }
 
 /**
- * Total duration of one strafe loop, formatted as SVG time string.
- * Includes a small tail buffer after the last cell so the final
- * explosion finishes before the loop resets.
+ * Total milliseconds in one full loop, accounting for Guardian's lag
+ * and the final cell's restoration completion.
+ */
+export function loopDurationMs(totalSteps: number): number {
+  return (totalSteps - 1) * MS_PER_CELL
+       + GUARDIAN_LAG_MS
+       + FADE_DURATION_MS
+       + 500; // small cleanup buffer
+}
+
+/**
+ * Loop duration as an SVG-friendly time string ("30.26s").
  */
 export function loopDuration(totalSteps: number): string {
-  const ms = totalSteps * MS_PER_CELL + FLASH_DURATION_MS + FADE_DURATION_MS + 500;
-  return `${(ms / 1000).toFixed(2)}s`;
+  return ms(loopDurationMs(totalSteps));
 }
 
 /**
- * Convert milliseconds to seconds string.
+ * Convert milliseconds to an SVG-friendly seconds string.
  */
 export function ms(milliseconds: number): string {
   return `${(milliseconds / 1000).toFixed(3)}s`;
