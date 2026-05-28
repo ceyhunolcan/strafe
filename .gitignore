@@ -1,8 +1,19 @@
 node_modules/
-dist/
 *.log
 .env
 .DS_Store
 .vscode/
 .idea/
 coverage/
+
+# tsc compilation output (local CLI dev only — not committed)
+build/
+
+# SVGs generated during local dev (contain your personal contribution data)
+out/
+
+# Inside dist/, only the bundled action (dist/index.js + dist/index.js.map)
+# should be committed. Everything else dist/ is local-only.
+dist/*
+!dist/index.js
+!dist/index.js.map

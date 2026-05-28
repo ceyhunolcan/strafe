@@ -1,13 +1,12 @@
 // ─── src/index.ts ─────────────────────────────────────────────────────
 //
-// The entry point. Evening 2: fetch contributions, render the grid as
-// SVG, and write it to dist/contributions.svg.
+// The local CLI entry point. Writes the SVG to out/contributions.svg.
+// (dist/ is now reserved for the bundled action — see package.json
+//  scripts and .gitignore.)
 //
 // To run it:
 //   export GITHUB_TOKEN=ghp_yourtokenhere
 //   npm start ceyhunolcan
-//
-// Then open dist/contributions.svg in your browser.
 // ──────────────────────────────────────────────────────────────────────
 
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -35,9 +34,8 @@ async function main() {
   console.log(`Rendering SVG...`);
   const svg = renderSvg(grid);
 
-  // Ensure dist/ exists, then write the file.
-  mkdirSync("dist", { recursive: true });
-  const outputPath = "dist/contributions.svg";
+  mkdirSync("out", { recursive: true });
+  const outputPath = "out/contributions.svg";
   writeFileSync(outputPath, svg, "utf-8");
 
   console.log(`✓ Wrote ${outputPath} (${svg.length} bytes)`);

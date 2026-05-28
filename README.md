@@ -8,17 +8,66 @@
 [ animated demo gif coming here ]
 ```
 
+## Usage
+
+Add this workflow to your GitHub profile repository (the one named the same as your username) at `.github/workflows/strafe.yml`:
+
+```yaml
+name: Generate Strafe Animation
+
+on:
+  schedule:
+    - cron: "0 */12 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  generate:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: ceyhunolcan/strafe@v1
+        with:
+          github_user_name: ${{ github.repository_owner }}
+          output: dist/strafe.svg
+
+      - uses: crazy-max/ghaction-github-pages@v3.1.0
+        with:
+          target_branch: output
+          build_dir: dist
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Then reference the SVG in your README:
+
+```markdown
+![strafe](https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_USERNAME/output/strafe.svg)
+```
+
+## Inputs
+
+| Name | Required | Default | Description |
+|---|---|---|---|
+| `github_user_name` | ✓ | — | GitHub username to fetch contributions for |
+| `output` | | `dist/strafe.svg` | Where to write the rendered SVG |
+| `github_token` | | `${{ github.token }}` | Token with read access to user contributions |
+
 ## Status
 
-🚧 **In development.** Not yet published to npm or available as a GitHub Action.
+🚧 **In development.** Not yet published to npm. Action usable from this repo.
 
-Currently working on:
 - [x] GitHub GraphQL contribution fetcher
-- [ ] Static SVG grid renderer
-- [ ] Fighter sprite + strafe path animation
-- [ ] Laser fire + cell explosion effects
-- [ ] GitHub Action wrapper
-- [ ] npm package + CLI
+- [x] Static SVG grid renderer
+- [x] Fighter sprite + serpentine path planning
+- [x] Animated strafe with laser blasts and cell explosions
+- [x] GitHub Action wrapper
+- [ ] Themes & customization (light/dark, custom colors)
+- [ ] Multiple ship formations
+- [ ] npm package + standalone CLI
 
 ## Local development
 
@@ -30,27 +79,14 @@ npm install
 # https://github.com/settings/tokens (needs `read:user` scope)
 export GITHUB_TOKEN=ghp_your_token_here
 
-# Run the fetcher on any GitHub username
+# Run the local CLI
 npm start ceyhunolcan
+# → writes dist/contributions.svg
+
+# Build the action bundle (for publishing)
+npm run package
+# → writes dist/action.js
 ```
-
-Expected output: an ASCII version of the user's contribution grid printed to your terminal, plus a count of total contributions for the year.
-
-## Roadmap
-
-**v0.1** — fetch & static render
-Fetch contribution data, render the grid as a static SVG matching GitHub's color palette.
-
-**v0.2** — animated strafe
-A single fighter flies a serpentine path across the grid, firing lasers that destroy cells in order.
-
-**v0.3** — GitHub Action
-Package the renderer as a GitHub Action so anyone can use it on their own profile.
-
-**v0.4** — themes & customization
-Light/dark themes, custom palettes, configurable fighter style.
-
-**v1.0** — npm publish, docs site, examples
 
 ## Why?
 

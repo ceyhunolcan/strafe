@@ -1,0 +1,30 @@
+name: 'Strafe'
+description: 'Your GitHub contributions, on patrol. Animated space-combat contribution graph for profile READMEs.'
+author: 'Ceyhun Olcan'
+
+branding:
+  icon: 'crosshair'
+  color: 'blue'
+
+inputs:
+  github_user_name:
+    description: 'GitHub username whose contribution graph to render'
+    required: true
+
+  output:
+    description: 'Where to write the rendered SVG'
+    required: false
+    default: 'dist/strafe.svg'
+
+  github_token:
+    description: 'GitHub token with read access to the user contributions. Defaults to the workflow token.'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  output_path:
+    description: 'Path where the rendered SVG was written'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

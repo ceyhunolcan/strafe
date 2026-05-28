@@ -6,8 +6,11 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "tsc && node dist/index.js",
+    "start": "tsc && node build/index.js",
     "dev": "tsc --watch",
+    "package": "ncc build src/action.ts -o dist -m --target es2022",
+    "all": "npm run build && npm run package",
+    "clean": "rm -rf build out dist/*.svg dist/*.map dist/*.d.ts",
     "test": "vitest run"
   },
   "keywords": [
@@ -16,15 +19,18 @@
     "readme",
     "contribution-graph",
     "svg",
-    "animation"
+    "animation",
+    "github-action"
   ],
   "author": "Ceyhun Olcan",
   "license": "MIT",
   "dependencies": {
+    "@actions/core": "^1.11.0",
     "@octokit/graphql": "^7.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "@vercel/ncc": "^0.38.1",
     "typescript": "^5.3.3",
     "vitest": "^1.2.0"
   },

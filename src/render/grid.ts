@@ -3,6 +3,12 @@
 // Renders the contribution grid as SVG rectangles.
 // Evening 4: each cell now includes destruction animations timed to
 // when the fighter passes over it.
+//
+// Evening 5 fix: gracefully skips cells that don't exist. GitHub's
+// contribution graph has partial rows at the start/end of the year
+// (e.g. if the range begins on a Wednesday, Sun/Mon/Tue of that first
+// week are missing). Without this guard, accessing cell.level on
+// undefined cells crashes the renderer.
 // ──────────────────────────────────────────────────────────────────────
 
 import type { Grid } from "../github/fetch-contributions.js";
@@ -49,8 +55,20 @@ export function cellToPixel(week: number, day: number): { x: number; y: number }
   };
 }
 
+/**
+ * Maximum row length across all 7 days. Use this (not cells[0].length)
+ * when iterating columns to avoid the partial-row crash.
+ */
+function maxWeeks(grid: Grid): number {
+  let max = 0;
+  for (const row of grid.cells) {
+    if (row.length > max) max = row.length;
+  }
+  return max;
+}
+
 export function gridDimensions(grid: Grid): { width: number; height: number } {
-  const weeks = grid.cells[0].length;
+  const weeks = maxWeeks(grid);
   const days = grid.cells.length;
   return {
     width: GRID_PAD_LEFT + weeks * CELL_STRIDE + GRID_PAD_RIGHT - CELL_GAP,
@@ -68,10 +86,6 @@ function fillForLevel(level: 0 | 1 | 2 | 3 | 4): string {
 
 // ─── Cell rendering ────────────────────────────────────────────────────
 
-/**
- * Build a lookup table: cell coordinate → step index on the strafe path.
- * We need this so each cell can find "when does the fighter hit me?"
- */
 function buildStepLookup(
   numWeeks: number,
   numDays: number
@@ -84,16 +98,6 @@ function buildStepLookup(
   return lookup;
 }
 
-/**
- * Render a single cell with its destruction animations.
- *
- * Three animations attached:
- *   1. Fill flash: cell briefly turns white at the moment of impact
- *   2. Fill return: snaps back to its original color (so the next loop is clean)
- *   3. Opacity fade: cell fades to invisible after the flash
- *
- * All three sync to the same loop duration and reset together.
- */
 function renderAnimatedCell(
   week: number,
   day: number,
@@ -106,13 +110,10 @@ function renderAnimatedCell(
   const begin = stepToBeginTime(step);
   const fullLoop = loopDuration(totalSteps);
 
-  // Cells with level 0 don't need destruction animation — they're already empty.
-  // We render them statically.
   if (level === 0) {
     return `<rect x="${x}" y="${y}" width="${CELL_SIZE}" height="${CELL_SIZE}" rx="${CELL_RADIUS}" ry="${CELL_RADIUS}" fill="${originalFill}" />`;
   }
 
-  // Active cells: full destruction animation.
   return `<rect x="${x}" y="${y}" width="${CELL_SIZE}" height="${CELL_SIZE}" rx="${CELL_RADIUS}" ry="${CELL_RADIUS}" fill="${originalFill}">
     <animate
       attributeName="fill"
@@ -144,9 +145,10 @@ function renderAnimatedCell(
 
 /**
  * Render the full grid with all per-cell animations.
+ * Tolerant of uneven rows — skips cells that don't exist.
  */
 export function renderGrid(grid: Grid): string {
-  const numWeeks = grid.cells[0].length;
+  const numWeeks = maxWeeks(grid);
   const numDays = grid.cells.length;
   const stepLookup = buildStepLookup(numWeeks, numDays);
   const totalSteps = numWeeks * numDays;
@@ -156,6 +158,8 @@ export function renderGrid(grid: Grid): string {
   for (let day = 0; day < numDays; day++) {
     for (let week = 0; week < numWeeks; week++) {
       const cell = grid.cells[day][week];
+      // Skip cells that don't exist (partial first/last weeks of the year)
+      if (!cell) continue;
       const step = stepLookup.get(`${week}-${day}`) ?? 0;
       cells.push(renderAnimatedCell(week, day, cell.level, step, totalSteps));
     }
@@ -164,9 +168,6 @@ export function renderGrid(grid: Grid): string {
   return `<g class="cells">\n  ${cells.join("\n  ")}\n</g>`;
 }
 
-/**
- * Render Mon/Wed/Fri labels on the left side.
- */
 export function renderDayLabels(): string {
   const labels = [
     { day: 1, text: "Mon" },
