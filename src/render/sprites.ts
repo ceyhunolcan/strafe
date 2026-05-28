@@ -1,19 +1,17 @@
 // ─── src/render/sprites.ts ────────────────────────────────────────────
 //
-// Sprite definitions + render function for Fleet Combat (v2).
+// Five distinct ship sprites for Fleet Combat v2.1 (Evening 8).
 //
-// Renders any number of ships from ShipPlan objects. Two rendering modes:
+//   Raiders (attackers):
+//     - raider        : standard delta-wing fighter (main combat ship)
+//     - raider-wing   : slim interceptor (atmosphere combatant)
+//     - raider-strike : heavy bomber, Y-wing style (atmosphere combatant)
 //
-//   "Full-loop" ships — fly the entire loop continuously. The main
-//   raider (destroys cells) and main guardian (restores cells) use
-//   this mode. Implementation: animateMotion with repeatCount=indefinite
-//   and dur=loopDurationMs.
+//   Guardians (defenders):
+//     - guardian           : standard delta-wing defender (main combat ship)
+//     - guardian-intercept : UFO saucer (atmosphere combatant)
 //
-//   "Atmosphere" ships — appear during a partial window of the loop,
-//   then disappear. Implementation: animateMotion with the same
-//   loop-length dur, but using keyTimes/keyPoints to control WHEN
-//   during the loop the ship actually moves. Paired with a discrete
-//   opacity animation that hides the ship when inactive.
+// Each sprite is a reusable <symbol> centered at origin, pointing right (+X).
 // ──────────────────────────────────────────────────────────────────────
 
 import { ms } from "./animation.js";
@@ -24,78 +22,86 @@ export const SPRITE_DEFS = `<defs>
       <path d="M -5,-1 L -8,0 L -5,1 Z" fill="#A02020" opacity="0.85" />
       <path
         d="M -5,-1 L -2,-5 L 1,-1 L 7,0 L 1,1 L -2,5 L -5,1 Z"
-        fill="#E04848"
-        stroke="#FF6B6B"
-        stroke-width="0.5"
-        stroke-linejoin="round"
+        fill="#E04848" stroke="#FF6B6B" stroke-width="0.5" stroke-linejoin="round"
       />
       <circle cx="2" cy="0" r="1.2" fill="#5A0000" />
     </symbol>
+
+    <symbol id="raider-wing" overflow="visible">
+      <path d="M -7,-1 L -10,0 L -7,1 Z" fill="#FF4040" opacity="0.9" />
+      <path
+        d="M -7,-1 L -3,-3 L 0,-1 L 9,0 L 0,1 L -3,3 L -7,1 Z"
+        fill="#FF6B6B" stroke="#FFA0A0" stroke-width="0.5" stroke-linejoin="round"
+      />
+      <circle cx="3" cy="0" r="1" fill="#600000" />
+    </symbol>
+
+    <symbol id="raider-strike" overflow="visible">
+      <path d="M -6,-2 L -10,0 L -6,2 Z" fill="#700000" opacity="0.85" />
+      <path
+        d="M -7,-2 L -4,-7 L 0,-3 L 4,-7 L 7,0 L 4,7 L 0,3 L -4,7 L -7,2 Z"
+        fill="#C92020" stroke="#E84040" stroke-width="0.5" stroke-linejoin="round"
+      />
+      <circle cx="2" cy="0" r="1.5" fill="#3A0000" />
+    </symbol>
+
     <symbol id="guardian" overflow="visible">
       <path d="M -5,-1 L -8,0 L -5,1 Z" fill="#A0F0E4" opacity="0.7" />
       <path
         d="M -5,-1 L -2,-5 L 1,-1 L 7,0 L 1,1 L -2,5 L -5,1 Z"
-        fill="#5EEAD4"
-        stroke="#2DD4BF"
-        stroke-width="0.5"
-        stroke-linejoin="round"
+        fill="#5EEAD4" stroke="#2DD4BF" stroke-width="0.5" stroke-linejoin="round"
       />
       <circle cx="2" cy="0" r="1.2" fill="#0F766E" />
     </symbol>
+
+    <symbol id="guardian-intercept" overflow="visible">
+      <ellipse cx="0" cy="0.5" rx="9" ry="2.5"
+        fill="#3B8B82" stroke="#0F766E" stroke-width="0.5" />
+      <ellipse cx="0" cy="-0.5" rx="9" ry="2"
+        fill="#5EEAD4" stroke="#2DD4BF" stroke-width="0.5" />
+      <ellipse cx="0" cy="-2.5" rx="3.5" ry="2"
+        fill="#A0F0E4" stroke="#FFFFFF" stroke-width="0.4" opacity="0.95" />
+      <circle cx="0" cy="-2.5" r="1" fill="#FFFFFF" opacity="0.8" />
+    </symbol>
   </defs>`;
 
-/**
- * Render a single ship.
- * - If durationMs >= loopMs the ship is treated as full-loop.
- * - Otherwise the ship is treated as an atmosphere combatant — visible
- *   only during its [beginMs, beginMs + durationMs] window each loop.
- */
 function renderShipFromPlan(plan: ShipPlan, loopMs: number): string {
   const loopTime = ms(loopMs);
+  const spriteId = plan.spriteId ?? plan.faction;
+  const rotateAttr = plan.rotate ?? "auto";
 
   // ─── Full-loop ship (main raider or main guardian) ─────────────────
   if (plan.durationMs >= loopMs) {
     if (plan.beginMs === 0) {
-      return `<use href="#${plan.faction}" data-ship="${plan.id}">
+      return `<use href="#${spriteId}" data-ship="${plan.id}">
       <animateMotion
         dur="${loopTime}"
         repeatCount="indefinite"
-        rotate="auto"
+        rotate="${rotateAttr}"
         path="${plan.svgPath}"
       />
     </use>`;
     }
     const beginTime = ms(plan.beginMs);
-    return `<use href="#${plan.faction}" opacity="0" data-ship="${plan.id}">
+    return `<use href="#${spriteId}" opacity="0" data-ship="${plan.id}">
       <set attributeName="opacity" to="1" begin="${beginTime}" />
       <animateMotion
         dur="${loopTime}"
         begin="${beginTime}"
         repeatCount="indefinite"
-        rotate="auto"
+        rotate="${rotateAttr}"
         path="${plan.svgPath}"
       />
     </use>`;
   }
 
   // ─── Atmosphere ship (partial window) ──────────────────────────────
-  //
-  // keyTimes / keyPoints semantics for animateMotion:
-  //   keyTimes  give fractions of the animation duration
-  //   keyPoints give corresponding fractions along the path (0..1)
-  //
-  // We use 4 keyTimes:
-  //   0          → ship at keyPoint 0 (path start, off-screen)
-  //   beginFrac  → still at keyPoint 0 (waiting to enter)
-  //   endFrac    → at keyPoint 1 (path end, off-screen)
-  //   1          → still at keyPoint 1 (idle until loop restarts)
-
   const safeBegin = Math.max(0.0005, plan.beginMs / loopMs);
   const safeEnd = Math.min(0.9995, (plan.beginMs + plan.durationMs) / loopMs);
   const begin = safeBegin.toFixed(4);
   const end = safeEnd.toFixed(4);
 
-  return `<use href="#${plan.faction}" opacity="0" data-ship="${plan.id}">
+  return `<use href="#${spriteId}" opacity="0" data-ship="${plan.id}">
       <animate
         attributeName="opacity"
         values="0;1;0;0"
@@ -106,7 +112,7 @@ function renderShipFromPlan(plan: ShipPlan, loopMs: number): string {
       />
       <animateMotion
         dur="${loopTime}"
-        rotate="auto"
+        rotate="${rotateAttr}"
         path="${plan.svgPath}"
         keyTimes="0;${begin};${end};1"
         keyPoints="0;0;1;1"
@@ -116,9 +122,6 @@ function renderShipFromPlan(plan: ShipPlan, loopMs: number): string {
     </use>`;
 }
 
-/**
- * Render all ships in the scene.
- */
 export function renderShips(plans: ShipPlan[], loopMs: number): string {
   const ships = plans
     .map((plan) => renderShipFromPlan(plan, loopMs))

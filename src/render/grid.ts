@@ -1,12 +1,14 @@
 // ─── src/render/grid.ts ───────────────────────────────────────────────
 //
-// Renders the contribution grid with two-stage cell animations:
-//   1. Raider destroys cell (red flash, fade to invisible)
-//   2. Guardian restores cell (teal flash, fade back to original)
+// Contribution grid + per-cell impact effects.
 //
-// Uses a single <animate> per attribute with keyTimes spanning the
-// full loop, so animations correctly repeat indefinitely (fixes the
-// v1 bug where cells only animated during the first loop).
+// Each non-empty cell has THREE coordinated animations:
+//   1. Opacity   — cell fades out on destroy, fades in on restore
+//   2. Fill flash — red flash on destroy, teal flash on restore
+//   3. Impact rings — expanding shockwave bursts from cell center
+//
+// Replaces the v2.1 vertical line "lasers" which read as glitches
+// because the ship is moving horizontally, not vertically.
 // ──────────────────────────────────────────────────────────────────────
 
 import type { Grid } from "../github/fetch-contributions.js";
@@ -30,6 +32,10 @@ export const GRID_PAD_LEFT = 30;
 export const GRID_PAD_TOP = 20;
 export const GRID_PAD_RIGHT = 10;
 export const GRID_PAD_BOTTOM = 10;
+
+// Impact ring expansion
+const IMPACT_BURST_MS = 240;
+const IMPACT_MAX_RADIUS = 8;
 
 // ─── Color palette ─────────────────────────────────────────────────────
 
@@ -79,7 +85,7 @@ function fillForLevel(level: 0 | 1 | 2 | 3 | 4): string {
                        COLORS.level4;
 }
 
-// ─── Cell rendering ────────────────────────────────────────────────────
+// ─── Step lookup ───────────────────────────────────────────────────────
 
 function buildStepLookup(numWeeks: number, numDays: number): Map<string, number> {
   const path = serpentinePath(numWeeks, numDays);
@@ -90,20 +96,8 @@ function buildStepLookup(numWeeks: number, numDays: number): Map<string, number>
   return lookup;
 }
 
-/**
- * Build the opacity animation values + keyTimes for a single cell.
- *
- * The cell timeline within one loop:
- *   t=0          → opacity 1 (alive)
- *   t=destroyAt  → opacity 1, about to fade
- *   t=destroyed  → opacity 0 (destroyed)
- *   t=restoreAt  → opacity 0, about to revive
- *   t=restored   → opacity 1 (revived)
- *   t=1 (loopEnd) → opacity 1
- *
- * Special case: when destroyAt = 0 (step 0 cell), we skip the initial
- * "1" since keyTimes can't have duplicates.
- */
+// ─── Keyframe builders ────────────────────────────────────────────────
+
 function buildOpacityKeyframes(
   destroyAt: number,
   restoreAt: number,
@@ -121,17 +115,12 @@ function buildOpacityKeyframes(
       keyTimes: `0;${tDestroyed.toFixed(4)};${tRestore.toFixed(4)};${tRestored.toFixed(4)};1`,
     };
   }
-
   return {
     values: "1;1;0;0;1;1",
     keyTimes: `0;${tDestroy.toFixed(4)};${tDestroyed.toFixed(4)};${tRestore.toFixed(4)};${tRestored.toFixed(4)};1`,
   };
 }
 
-/**
- * Build the fill flash animation for a single cell.
- * Discrete (instant) transitions for the laser flashes.
- */
 function buildFillKeyframes(
   destroyAt: number,
   restoreAt: number,
@@ -150,11 +139,42 @@ function buildFillKeyframes(
       keyTimes: `0;${tDestroyFlashEnd.toFixed(4)};${tRestore.toFixed(4)};${tRestoreFlashEnd.toFixed(4)};1`,
     };
   }
-
   return {
     values: `${original};${COLORS.raiderLaser};${original};${COLORS.guardianBeam};${original};${original}`,
     keyTimes: `0;${tDestroy.toFixed(4)};${tDestroyFlashEnd.toFixed(4)};${tRestore.toFixed(4)};${tRestoreFlashEnd.toFixed(4)};1`,
   };
+}
+
+/**
+ * Build an expanding ring (shockwave) that bursts from cell center on impact.
+ * Radius grows from 0 to IMPACT_MAX_RADIUS; opacity fades from 1 to 0.
+ */
+function buildImpactRing(
+  cx: number,
+  cy: number,
+  impactAt: number,
+  color: string,
+  loop: number
+): string {
+  const tStart = Math.max(0.0005, impactAt / loop);
+  const tEnd = Math.min(0.9995, (impactAt + IMPACT_BURST_MS) / loop);
+
+  return `<circle cx="${cx}" cy="${cy}" r="0" fill="none" stroke="${color}" stroke-width="1.2" opacity="0">
+      <animate
+        attributeName="r"
+        values="0;0;${IMPACT_MAX_RADIUS};${IMPACT_MAX_RADIUS}"
+        keyTimes="0;${tStart.toFixed(4)};${tEnd.toFixed(4)};1"
+        dur="${loop}ms"
+        repeatCount="indefinite"
+      />
+      <animate
+        attributeName="opacity"
+        values="0;0;0.9;0;0"
+        keyTimes="0;${Math.max(0.0001, tStart - 0.0002).toFixed(4)};${tStart.toFixed(4)};${tEnd.toFixed(4)};1"
+        dur="${loop}ms"
+        repeatCount="indefinite"
+      />
+    </circle>`;
 }
 
 function renderAnimatedCell(
@@ -167,7 +187,6 @@ function renderAnimatedCell(
   const { x, y } = cellToPixel(week, day);
   const originalFill = fillForLevel(level);
 
-  // Level 0 cells are static — no contribution to defend
   if (level === 0) {
     return `<rect x="${x}" y="${y}" width="${CELL_SIZE}" height="${CELL_SIZE}" rx="${CELL_RADIUS}" ry="${CELL_RADIUS}" fill="${originalFill}" />`;
   }
@@ -175,33 +194,38 @@ function renderAnimatedCell(
   const loopMs = loopDurationMs(totalSteps);
   const destroyAt = step * MS_PER_CELL;
   const restoreAt = destroyAt + GUARDIAN_LAG_MS;
+  const cx = x + CELL_SIZE / 2;
+  const cy = y + CELL_SIZE / 2;
 
   const opacity = buildOpacityKeyframes(destroyAt, restoreAt, FADE_DURATION_MS, loopMs);
   const fill = buildFillKeyframes(destroyAt, restoreAt, FLASH_DURATION_MS, loopMs, originalFill);
 
-  return `<rect x="${x}" y="${y}" width="${CELL_SIZE}" height="${CELL_SIZE}" rx="${CELL_RADIUS}" ry="${CELL_RADIUS}" fill="${originalFill}">
-    <animate
-      attributeName="opacity"
-      values="${opacity.values}"
-      keyTimes="${opacity.keyTimes}"
-      dur="${loopMs}ms"
-      repeatCount="indefinite"
-    />
-    <animate
-      attributeName="fill"
-      values="${fill.values}"
-      keyTimes="${fill.keyTimes}"
-      dur="${loopMs}ms"
-      calcMode="discrete"
-      repeatCount="indefinite"
-    />
-  </rect>`;
+  const destroyBurst = buildImpactRing(cx, cy, destroyAt, COLORS.raiderLaser, loopMs);
+  const restoreBurst = buildImpactRing(cx, cy, restoreAt, COLORS.guardianBeam, loopMs);
+
+  return `<g class="cell">
+    <rect x="${x}" y="${y}" width="${CELL_SIZE}" height="${CELL_SIZE}" rx="${CELL_RADIUS}" ry="${CELL_RADIUS}" fill="${originalFill}">
+      <animate
+        attributeName="opacity"
+        values="${opacity.values}"
+        keyTimes="${opacity.keyTimes}"
+        dur="${loopMs}ms"
+        repeatCount="indefinite"
+      />
+      <animate
+        attributeName="fill"
+        values="${fill.values}"
+        keyTimes="${fill.keyTimes}"
+        dur="${loopMs}ms"
+        calcMode="discrete"
+        repeatCount="indefinite"
+      />
+    </rect>
+    ${destroyBurst}
+    ${restoreBurst}
+  </g>`;
 }
 
-/**
- * Render the full grid with all per-cell animations.
- * Tolerant of uneven rows (partial weeks at year boundaries).
- */
 export function renderGrid(grid: Grid): string {
   const numWeeks = maxWeeks(grid);
   const numDays = grid.cells.length;
