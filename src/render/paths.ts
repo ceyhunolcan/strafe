@@ -1,10 +1,11 @@
 // ─── src/render/paths.ts ──────────────────────────────────────────────
 //
-// Multi-ship flight paths for Fleet Combat v2.1.
+// Multi-ship flight paths for Fleet Combat v2.2.
 //
-// Each ShipPlan now carries:
-//   - spriteId : which <symbol> to use (e.g. "raider-wing", "guardian-intercept")
-//   - rotate   : how the ship aligns to its path ("auto" or fixed angle)
+// Adds Guardian Mothership: a large capital ship drifting slowly
+// across the upper background. Doesn't engage in combat — it's the
+// imposing background presence that makes the scene feel like a fleet
+// engagement instead of just dogfighting.
 // ──────────────────────────────────────────────────────────────────────
 
 import type { Grid } from "../github/fetch-contributions.js";
@@ -54,10 +55,24 @@ export function buildShipPlans(
     rotate: "auto",
   });
 
-  // Atmosphere combatants — different sprites, different paths, staggered entries
+  // GUARDIAN MOTHERSHIP — large capital UFO, slow drift across upper background
+  // beginMs=0, durationMs slightly less than mainDuration so it counts as
+  // "atmosphere" and uses keyTimes/keyPoints (cleaner for partial windows).
+  // The mothership flies high (y = 15% of height = ~14px down) above the
+  // contribution cells. Path extends well off-screen on both ends so
+  // entries/exits feel natural.
+  plans.push({
+    id: "guardian-mothership",
+    faction: "guardian",
+    spriteId: "guardian-mothership",
+    svgPath: `M ${width + 50},${height * 0.15} L -50,${height * 0.18}`,
+    beginMs: 500,
+    durationMs: 25000,
+    rotate: "0",
+  });
 
   // RAIDER WING (slim interceptor) — high-altitude sweep, right to left
-  const wingY = height * 0.25;
+  const wingY = height * 0.3;
   plans.push({
     id: "raider-wing",
     faction: "raider",
@@ -79,13 +94,12 @@ export function buildShipPlans(
     rotate: "auto",
   });
 
-  // GUARDIAN INTERCEPT (UFO saucer) — slow majestic banking interception
-  // rotate="0" keeps the saucer horizontal regardless of path direction
+  // GUARDIAN INTERCEPT (small UFO saucer) — banking interception
   plans.push({
     id: "guardian-intercept",
     faction: "guardian",
     spriteId: "guardian-intercept",
-    svgPath: `M -25,${height * 0.7} C ${width * 0.3},${height * 0.4} ${width * 0.55},${height * 0.85} ${width + 25},${height * 0.2}`,
+    svgPath: `M -25,${height * 0.75} C ${width * 0.3},${height * 0.45} ${width * 0.55},${height * 0.85} ${width + 25},${height * 0.25}`,
     beginMs: 16000,
     durationMs: 7000,
     rotate: "0",
