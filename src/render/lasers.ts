@@ -1,14 +1,8 @@
 // ─── src/render/lasers.ts ─────────────────────────────────────────────
 //
 // Ship-to-ship laser tracer system with glow halos.
-//
-// Each tracer is now TWO stacked <line> elements:
-//   - Halo:  4px stroke-width, peaks at 0.35 opacity (the bloom around the beam)
-//   - Core:  1.5px stroke-width, peaks at 1.0 opacity (the bright laser itself)
-//
-// Same fade timing (40ms ramp in, 160ms fade out) for both.
-// Net effect: glowing energy beams with atmospheric bloom, matching
-// the cinematic space-combat look the user referenced.
+// v2.3 adds the KILL SHOT — a guardian laser fired at the raider-strike's
+// destruction position, immediately before the explosion plays.
 // ──────────────────────────────────────────────────────────────────────
 
 import { ms } from "./animation.js";
@@ -28,22 +22,35 @@ type TracerEvent = {
 };
 
 function buildTracerEvents(width: number, height: number): TracerEvent[] {
+  // Raider-strike destruction position (must match paths.ts calculation)
+  const killX = width * 0.2828 - 8.13;
+  const killY = height * 0.7594 + 6.09;
+
   return [
     { timeMs: 2000, x1: width * 0.05, y1: height * 0.3, x2: width * 0.25, y2: height * 0.4, color: "raider" },
 
+    // Raider-wing engages
     { timeMs: 5500, x1: width * 0.85, y1: height * 0.18, x2: width * 0.25, y2: height * 0.65, color: "raider" },
     { timeMs: 7000, x1: width * 0.15, y1: height * 0.55, x2: width * 0.7, y2: height * 0.2, color: "guardian" },
     { timeMs: 9000, x1: width * 0.6, y1: height * 0.22, x2: width * 0.15, y2: height * 0.7, color: "raider" },
     { timeMs: 10500, x1: width * 0.2, y1: height * 0.45, x2: width * 0.5, y2: height * 0.2, color: "guardian" },
 
+    // Raider-strike dive
     { timeMs: 13000, x1: width * 0.95, y1: height * 0.08, x2: width * 0.45, y2: height * 0.8, color: "raider" },
     { timeMs: 14500, x1: width * 0.78, y1: height * 0.3, x2: width * 0.3, y2: height * 0.85, color: "raider" },
     { timeMs: 16000, x1: width * 0.6, y1: height * 0.5, x2: width * 0.15, y2: height * 0.85, color: "raider" },
 
+    // THE KILL SHOT — guardian-intercept (entering at t=16000) fires on raider-strike
+    // raider-strike destroyed at t=12000+4500=16500. Laser fires at t=16400.
+    // From guardian-intercept's entry position (lower-left) to raider-strike position.
+    { timeMs: 16400, x1: width * 0.06, y1: height * 0.73, x2: killX, y2: killY, color: "guardian" },
+
+    // Guardian-intercept continues counter-attack
     { timeMs: 17500, x1: width * 0.1, y1: height * 0.7, x2: width * 0.6, y2: height * 0.4, color: "guardian" },
     { timeMs: 19000, x1: width * 0.25, y1: height * 0.6, x2: width * 0.75, y2: height * 0.25, color: "guardian" },
     { timeMs: 20500, x1: width * 0.4, y1: height * 0.5, x2: width * 0.85, y2: height * 0.2, color: "guardian" },
 
+    // Final exchange
     { timeMs: 24000, x1: width * 0.7, y1: height * 0.35, x2: width * 0.2, y2: height * 0.6, color: "raider" },
     { timeMs: 26500, x1: width * 0.3, y1: height * 0.55, x2: width * 0.8, y2: height * 0.25, color: "guardian" },
   ];
@@ -67,7 +74,6 @@ function renderTracer(event: TracerEvent, loopMs: number): string {
   const x2 = event.x2.toFixed(1);
   const y2 = event.y2.toFixed(1);
 
-  // Halo: thick semi-transparent line (the bloom)
   const halo = `<line
       x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
       stroke="${color}"
@@ -84,7 +90,6 @@ function renderTracer(event: TracerEvent, loopMs: number): string {
       />
     </line>`;
 
-  // Core: thin bright line (the beam itself)
   const core = `<line
       x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
       stroke="${color}"

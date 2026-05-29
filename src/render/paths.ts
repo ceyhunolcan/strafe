@@ -1,11 +1,14 @@
 // ─── src/render/paths.ts ──────────────────────────────────────────────
 //
-// Multi-ship flight paths for Fleet Combat v2.2.
+// Multi-ship flight paths for Fleet Combat v2.3 (Evening 9 — stakes).
 //
-// Adds Guardian Mothership: a large capital ship drifting slowly
-// across the upper background. Doesn't engage in combat — it's the
-// imposing background presence that makes the scene feel like a fleet
-// engagement instead of just dogfighting.
+// New ShipPlan fields:
+//   destroyedAtMs : time offset (relative to beginMs) when ship is destroyed
+//   destroyedAtX  : x position where explosion plays
+//   destroyedAtY  : y position where explosion plays
+//
+// Raider-strike is now marked destroyed mid-flight. Its destruction
+// position is the cubic Bezier curve evaluated at t=0.75 of its path.
 // ──────────────────────────────────────────────────────────────────────
 
 import type { Grid } from "../github/fetch-contributions.js";
@@ -22,6 +25,10 @@ export type ShipPlan = {
   beginMs: number;
   durationMs: number;
   rotate?: "auto" | "0";
+  // Optional destruction:
+  destroyedAtMs?: number;
+  destroyedAtX?: number;
+  destroyedAtY?: number;
 };
 
 export function buildShipPlans(
@@ -55,12 +62,7 @@ export function buildShipPlans(
     rotate: "auto",
   });
 
-  // GUARDIAN MOTHERSHIP — large capital UFO, slow drift across upper background
-  // beginMs=0, durationMs slightly less than mainDuration so it counts as
-  // "atmosphere" and uses keyTimes/keyPoints (cleaner for partial windows).
-  // The mothership flies high (y = 15% of height = ~14px down) above the
-  // contribution cells. Path extends well off-screen on both ends so
-  // entries/exits feel natural.
+  // GUARDIAN MOTHERSHIP — large capital UFO, slow upper drift
   plans.push({
     id: "guardian-mothership",
     faction: "guardian",
@@ -71,7 +73,7 @@ export function buildShipPlans(
     rotate: "0",
   });
 
-  // RAIDER WING (slim interceptor) — high-altitude sweep, right to left
+  // RAIDER WING (slim interceptor) — high-altitude sweep
   const wingY = height * 0.3;
   plans.push({
     id: "raider-wing",
@@ -83,7 +85,14 @@ export function buildShipPlans(
     rotate: "auto",
   });
 
-  // RAIDER STRIKE (heavy bomber) — diagonal dive attack
+  // RAIDER STRIKE (heavy bomber) — diagonal dive attack, gets SHOT DOWN mid-flight
+  //
+  // Cubic Bezier from (w+20, -15) via (0.7w, 0.3h) and (0.4w, 0.7h) to (-20, h+15)
+  // At t=0.75 the ship is at approximately:
+  //   x = 0.2828 * w - 8.13
+  //   y = 0.7594 * h + 6.09
+  const destX = width * 0.2828 - 8.13;
+  const destY = height * 0.7594 + 6.09;
   plans.push({
     id: "raider-strike",
     faction: "raider",
@@ -92,6 +101,9 @@ export function buildShipPlans(
     beginMs: 12000,
     durationMs: 6000,
     rotate: "auto",
+    destroyedAtMs: 4500, // 4.5s into 6s flight = t=0.75 of path
+    destroyedAtX: destX,
+    destroyedAtY: destY,
   });
 
   // GUARDIAN INTERCEPT (small UFO saucer) — banking interception

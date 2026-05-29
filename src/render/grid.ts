@@ -1,14 +1,12 @@
 // ─── src/render/grid.ts ───────────────────────────────────────────────
 //
-// Contribution grid + per-cell impact effects.
-//
-// Each non-empty cell has THREE coordinated animations:
-//   1. Opacity   — cell fades out on destroy, fades in on restore
-//   2. Fill flash — red flash on destroy, teal flash on restore
-//   3. Impact rings — expanding shockwave bursts from cell center
-//
-// Replaces the v2.1 vertical line "lasers" which read as glitches
-// because the ship is moving horizontally, not vertically.
+// Contribution grid with per-cell impact effects.
+// v2.3 (Evening 9 — stakes):
+//   ~15% of contribution cells are "doomed" — they get destroyed but
+//   NEVER restored during the loop. They settle into a dim scorched-red
+//   state for the rest of the cycle, then reset at loop boundary.
+//   Doomed selection is deterministic (FNV-style hash of week/day) so
+//   the same cells die every loop — visually random pattern but stable.
 // ──────────────────────────────────────────────────────────────────────
 
 import type { Grid } from "../github/fetch-contributions.js";
@@ -33,9 +31,13 @@ export const GRID_PAD_TOP = 20;
 export const GRID_PAD_RIGHT = 10;
 export const GRID_PAD_BOTTOM = 10;
 
-// Impact ring expansion
 const IMPACT_BURST_MS = 240;
 const IMPACT_MAX_RADIUS = 8;
+
+// Doomed cells: ~15% of contributions stay destroyed each loop
+const DOOMED_PERCENT = 15;
+const SCORCHED_COLOR = "#5A1010";
+const SCORCHED_OPACITY = 0.4;
 
 // ─── Color palette ─────────────────────────────────────────────────────
 
@@ -85,6 +87,20 @@ function fillForLevel(level: 0 | 1 | 2 | 3 | 4): string {
                        COLORS.level4;
 }
 
+// ─── Doomed cell selection ─────────────────────────────────────────────
+
+/**
+ * Deterministic ~15% selection of cells that won't be restored.
+ * FNV-style hash gives a visually random but stable pattern.
+ */
+function isDoomed(week: number, day: number): boolean {
+  let hash = 2166136261;
+  hash = Math.imul(hash ^ week, 16777619);
+  hash = Math.imul(hash ^ day, 16777619);
+  hash = Math.imul(hash ^ (week * 31 + day * 17), 16777619);
+  return (hash >>> 0) % 100 < DOOMED_PERCENT;
+}
+
 // ─── Step lookup ───────────────────────────────────────────────────────
 
 function buildStepLookup(numWeeks: number, numDays: number): Map<string, number> {
@@ -96,7 +112,7 @@ function buildStepLookup(numWeeks: number, numDays: number): Map<string, number>
   return lookup;
 }
 
-// ─── Keyframe builders ────────────────────────────────────────────────
+// ─── Keyframe builders — NORMAL (looping) cells ───────────────────────
 
 function buildOpacityKeyframes(
   destroyAt: number,
@@ -145,10 +161,39 @@ function buildFillKeyframes(
   };
 }
 
-/**
- * Build an expanding ring (shockwave) that bursts from cell center on impact.
- * Radius grows from 0 to IMPACT_MAX_RADIUS; opacity fades from 1 to 0.
- */
+// ─── Keyframe builders — DOOMED cells (destroyed, never restored) ─────
+
+function buildDoomedOpacityKeyframes(
+  destroyAt: number,
+  fade: number,
+  loop: number
+): { values: string; keyTimes: string } {
+  const tDestroy = destroyAt / loop;
+  const tDestroyed = (destroyAt + fade) / loop;
+  // Full opacity until destruction, fade to scorched, hold scorched
+  return {
+    values: `1;1;${SCORCHED_OPACITY};${SCORCHED_OPACITY}`,
+    keyTimes: `0;${tDestroy.toFixed(4)};${tDestroyed.toFixed(4)};1`,
+  };
+}
+
+function buildDoomedFillKeyframes(
+  destroyAt: number,
+  flash: number,
+  loop: number,
+  original: string
+): { values: string; keyTimes: string } {
+  const tDestroy = destroyAt / loop;
+  const tFlashEnd = (destroyAt + flash) / loop;
+  // Original → red flash → settle to scorched red, hold
+  return {
+    values: `${original};${COLORS.raiderLaser};${SCORCHED_COLOR};${SCORCHED_COLOR}`,
+    keyTimes: `0;${tDestroy.toFixed(4)};${tFlashEnd.toFixed(4)};1`,
+  };
+}
+
+// ─── Impact ring ───────────────────────────────────────────────────────
+
 function buildImpactRing(
   cx: number,
   cy: number,
@@ -177,6 +222,8 @@ function buildImpactRing(
     </circle>`;
 }
 
+// ─── Cell renderer ─────────────────────────────────────────────────────
+
 function renderAnimatedCell(
   week: number,
   day: number,
@@ -193,13 +240,43 @@ function renderAnimatedCell(
 
   const loopMs = loopDurationMs(totalSteps);
   const destroyAt = step * MS_PER_CELL;
-  const restoreAt = destroyAt + GUARDIAN_LAG_MS;
   const cx = x + CELL_SIZE / 2;
   const cy = y + CELL_SIZE / 2;
 
+  // Doomed status: deterministic ~15%, skip step=0 to avoid loop boundary edge case
+  const doomed = step > 0 && isDoomed(week, day);
+
+  if (doomed) {
+    const opacity = buildDoomedOpacityKeyframes(destroyAt, FADE_DURATION_MS, loopMs);
+    const fill = buildDoomedFillKeyframes(destroyAt, FLASH_DURATION_MS, loopMs, originalFill);
+    const destroyBurst = buildImpactRing(cx, cy, destroyAt, COLORS.raiderLaser, loopMs);
+
+    return `<g class="cell doomed">
+    <rect x="${x}" y="${y}" width="${CELL_SIZE}" height="${CELL_SIZE}" rx="${CELL_RADIUS}" ry="${CELL_RADIUS}" fill="${originalFill}">
+      <animate
+        attributeName="opacity"
+        values="${opacity.values}"
+        keyTimes="${opacity.keyTimes}"
+        dur="${loopMs}ms"
+        repeatCount="indefinite"
+      />
+      <animate
+        attributeName="fill"
+        values="${fill.values}"
+        keyTimes="${fill.keyTimes}"
+        dur="${loopMs}ms"
+        calcMode="discrete"
+        repeatCount="indefinite"
+      />
+    </rect>
+    ${destroyBurst}
+  </g>`;
+  }
+
+  // Normal looping cell
+  const restoreAt = destroyAt + GUARDIAN_LAG_MS;
   const opacity = buildOpacityKeyframes(destroyAt, restoreAt, FADE_DURATION_MS, loopMs);
   const fill = buildFillKeyframes(destroyAt, restoreAt, FLASH_DURATION_MS, loopMs, originalFill);
-
   const destroyBurst = buildImpactRing(cx, cy, destroyAt, COLORS.raiderLaser, loopMs);
   const restoreBurst = buildImpactRing(cx, cy, restoreAt, COLORS.guardianBeam, loopMs);
 

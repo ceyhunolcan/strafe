@@ -1,19 +1,8 @@
 // ─── src/render/sprites.ts ────────────────────────────────────────────
 //
-// Six detailed ship sprites for Fleet Combat v2.2 (Evening 9 — cinematic).
-//
-//   Raiders (attackers):
-//     - raider        : standard delta-wing fighter (main combat)
-//     - raider-wing   : slim interceptor (atmosphere)
-//     - raider-strike : heavy Y-wing-style bomber (atmosphere)
-//
-//   Guardians (defenders):
-//     - guardian            : standard delta-wing defender (main combat)
-//     - guardian-intercept  : small UFO saucer (atmosphere)
-//     - guardian-mothership : LARGE capital UFO (atmosphere, background drift)
-//
-// Each fighter gains: cockpit canopy, wing-tip lights, long engine glow.
-// The mothership is ~3x the size of fighters and drifts slowly.
+// Six detailed ship sprites + multi-ship renderer.
+// v2.3 (Evening 9): atmosphere ships respect plan.destroyedAtMs —
+// ship vanishes at destruction time instead of completing its flight.
 // ──────────────────────────────────────────────────────────────────────
 
 import { ms } from "./animation.js";
@@ -119,6 +108,7 @@ function renderShipFromPlan(plan: ShipPlan, loopMs: number): string {
   const spriteId = plan.spriteId ?? plan.faction;
   const rotateAttr = plan.rotate ?? "auto";
 
+  // ─── Full-loop ship (always on screen) ─────────────────────────────
   if (plan.durationMs >= loopMs) {
     if (plan.beginMs === 0) {
       return `<use href="#${spriteId}" data-ship="${plan.id}">
@@ -143,8 +133,16 @@ function renderShipFromPlan(plan: ShipPlan, loopMs: number): string {
     </use>`;
   }
 
+  // ─── Atmosphere ship (visible during a partial window) ─────────────
+  //
+  // If destroyedAtMs is set, the ship vanishes at destruction time
+  // rather than completing its full traversal.
+  const effectiveEndMs = plan.destroyedAtMs != null
+    ? plan.beginMs + plan.destroyedAtMs
+    : plan.beginMs + plan.durationMs;
+
   const safeBegin = Math.max(0.0005, plan.beginMs / loopMs);
-  const safeEnd = Math.min(0.9995, (plan.beginMs + plan.durationMs) / loopMs);
+  const safeEnd = Math.min(0.9995, effectiveEndMs / loopMs);
   const begin = safeBegin.toFixed(4);
   const end = safeEnd.toFixed(4);
 

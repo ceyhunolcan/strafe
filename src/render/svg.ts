@@ -1,20 +1,18 @@
 // ─── src/render/svg.ts ────────────────────────────────────────────────
 //
-// Final animated SVG assembler with cinematic space background.
-// Evening 9 atmosphere upgrade:
-//   - Starfield: ~40 small white stars scattered across canvas
-//   - Nebula gradients: two soft radial gradients in opposing corners
-//     (deep purple in upper-right, teal in lower-left) — atmospheric
-//     color without overwhelming the cells
+// Final animated SVG assembler.
+// v2.3 (Evening 9 — stakes):
+//   Adds explosions layer on top of everything for ships shot down.
 //
 // Render order (later = on top):
 //   1. Background fill (dark space)
-//   2. Nebula gradient overlays (soft colored atmosphere)
-//   3. Starfield (small white dots)
+//   2. Nebula gradient overlays
+//   3. Starfield
 //   4. Day labels
-//   5. Cells (with impact rings) — covers stars in cell positions
+//   5. Cells (with impact rings, including doomed cells)
 //   6. Ships (mothership in back, fighters on top)
-//   7. Laser tracers (on top of everything)
+//   7. Laser tracers
+//   8. Explosions (on top of everything — dramatic foreground events)
 // ──────────────────────────────────────────────────────────────────────
 
 import type { Grid } from "../github/fetch-contributions.js";
@@ -28,10 +26,8 @@ import { SPRITE_DEFS, renderShips } from "./sprites.js";
 import { GUARDIAN_LAG_MS, loopDurationMs } from "./animation.js";
 import { buildMainSerpentine, buildShipPlans } from "./paths.js";
 import { renderLasers } from "./lasers.js";
+import { renderExplosions } from "./explosions.js";
 
-// Hardcoded star positions for deterministic starfield.
-// Format: [x, y, radius, opacity]
-// Many in the top/bottom padding strips (most visible).
 const STARFIELD: Array<[number, number, number, number]> = [
   [28, 4, 0.5, 0.7], [75, 12, 0.7, 0.5], [130, 6, 0.6, 0.75],
   [180, 14, 0.5, 0.55], [210, 3, 0.8, 0.5], [255, 9, 0.5, 0.7],
@@ -78,11 +74,11 @@ export function renderSvg(grid: Grid): string {
   const plans = buildShipPlans(grid, main.svgPath, loopMs, GUARDIAN_LAG_MS);
   const ships = renderShips(plans, loopMs);
   const lasers = renderLasers(width, height, loopMs);
+  const explosions = renderExplosions(plans, loopMs);
 
-  // Inject nebula gradients into SPRITE_DEFS (which already contains <defs>)
   const allDefs = SPRITE_DEFS.replace("</defs>", `${NEBULA_DEFS}\n  </defs>`);
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Animated contribution graph — cinematic space combat with starfield, capital ship, and laser fire">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Animated contribution graph — cinematic space combat with ship destruction and permanent cell losses">
   ${allDefs}
 
   <rect width="${width}" height="${height}" fill="${COLORS.background}" />
@@ -98,5 +94,7 @@ export function renderSvg(grid: Grid): string {
   ${ships}
 
   ${lasers}
+
+  ${explosions}
 </svg>`;
 }
