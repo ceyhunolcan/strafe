@@ -1,19 +1,14 @@
 // ─── src/render/paths.ts ──────────────────────────────────────────────
 //
-// Multi-ship flight paths for Fleet Combat v2.3 (Evening 9 — stakes).
-//
-// New ShipPlan fields:
-//   destroyedAtMs : time offset (relative to beginMs) when ship is destroyed
-//   destroyedAtX  : x position where explosion plays
-//   destroyedAtY  : y position where explosion plays
-//
-// Raider-strike is now marked destroyed mid-flight. Its destruction
-// position is the cubic Bezier curve evaluated at t=0.75 of its path.
+// Multi-ship flight paths.
+// v2.4: destruction position now computed from positions.ts (single
+// source of truth) so the kill-shot laser and explosion line up exactly.
 // ──────────────────────────────────────────────────────────────────────
 
 import type { Grid } from "../github/fetch-contributions.js";
 import { gridDimensions } from "./grid.js";
 import { serpentinePath, pathToSvgPath } from "./path.js";
+import { raiderStrikePositionAt } from "./positions.js";
 
 export type Faction = "raider" | "guardian";
 
@@ -25,7 +20,6 @@ export type ShipPlan = {
   beginMs: number;
   durationMs: number;
   rotate?: "auto" | "0";
-  // Optional destruction:
   destroyedAtMs?: number;
   destroyedAtX?: number;
   destroyedAtY?: number;
@@ -40,7 +34,6 @@ export function buildShipPlans(
   const { width, height } = gridDimensions(grid);
   const plans: ShipPlan[] = [];
 
-  // Main raider — destroys cells along serpentine
   plans.push({
     id: "raider-main",
     faction: "raider",
@@ -51,7 +44,6 @@ export function buildShipPlans(
     rotate: "auto",
   });
 
-  // Main guardian — restores cells, trails raider
   plans.push({
     id: "guardian-main",
     faction: "guardian",
@@ -62,7 +54,6 @@ export function buildShipPlans(
     rotate: "auto",
   });
 
-  // GUARDIAN MOTHERSHIP — large capital UFO, slow upper drift
   plans.push({
     id: "guardian-mothership",
     faction: "guardian",
@@ -73,7 +64,6 @@ export function buildShipPlans(
     rotate: "0",
   });
 
-  // RAIDER WING (slim interceptor) — high-altitude sweep
   const wingY = height * 0.3;
   plans.push({
     id: "raider-wing",
@@ -85,14 +75,11 @@ export function buildShipPlans(
     rotate: "auto",
   });
 
-  // RAIDER STRIKE (heavy bomber) — diagonal dive attack, gets SHOT DOWN mid-flight
-  //
-  // Cubic Bezier from (w+20, -15) via (0.7w, 0.3h) and (0.4w, 0.7h) to (-20, h+15)
-  // At t=0.75 the ship is at approximately:
-  //   x = 0.2828 * w - 8.13
-  //   y = 0.7594 * h + 6.09
-  const destX = width * 0.2828 - 8.13;
-  const destY = height * 0.7594 + 6.09;
+  // Raider-Strike — gets shot down at 4.5s into its 6s flight.
+  // Destruction position from positions.ts (single source of truth so
+  // the kill-shot laser and explosion render at the same coordinates).
+  const destroyAtMs = 4500;
+  const destroyPos = raiderStrikePositionAt(12000 + destroyAtMs, width, height);
   plans.push({
     id: "raider-strike",
     faction: "raider",
@@ -101,12 +88,11 @@ export function buildShipPlans(
     beginMs: 12000,
     durationMs: 6000,
     rotate: "auto",
-    destroyedAtMs: 4500, // 4.5s into 6s flight = t=0.75 of path
-    destroyedAtX: destX,
-    destroyedAtY: destY,
+    destroyedAtMs: destroyAtMs,
+    destroyedAtX: destroyPos.x,
+    destroyedAtY: destroyPos.y,
   });
 
-  // GUARDIAN INTERCEPT (small UFO saucer) — banking interception
   plans.push({
     id: "guardian-intercept",
     faction: "guardian",

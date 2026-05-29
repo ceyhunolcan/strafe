@@ -1,18 +1,8 @@
 // ─── src/render/svg.ts ────────────────────────────────────────────────
 //
 // Final animated SVG assembler.
-// v2.3 (Evening 9 — stakes):
-//   Adds explosions layer on top of everything for ships shot down.
-//
-// Render order (later = on top):
-//   1. Background fill (dark space)
-//   2. Nebula gradient overlays
-//   3. Starfield
-//   4. Day labels
-//   5. Cells (with impact rings, including doomed cells)
-//   6. Ships (mothership in back, fighters on top)
-//   7. Laser tracers
-//   8. Explosions (on top of everything — dramatic foreground events)
+// v2.4: renderLasers now takes the Grid directly so it can look up
+// ship positions on the serpentine path.
 // ──────────────────────────────────────────────────────────────────────
 
 import type { Grid } from "../github/fetch-contributions.js";
@@ -73,7 +63,7 @@ export function renderSvg(grid: Grid): string {
 
   const plans = buildShipPlans(grid, main.svgPath, loopMs, GUARDIAN_LAG_MS);
   const ships = renderShips(plans, loopMs);
-  const lasers = renderLasers(width, height, loopMs);
+  const lasers = renderLasers(grid, loopMs);
   const explosions = renderExplosions(plans, loopMs);
 
   const allDefs = SPRITE_DEFS.replace("</defs>", `${NEBULA_DEFS}\n  </defs>`);
